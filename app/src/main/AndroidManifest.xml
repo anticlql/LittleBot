@@ -18,6 +18,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- Microphone permission (speech recognition) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- WiFi / Network permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -38,6 +41,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LittleBot"
         android:usesCleartextTraffic="true">
+        <activity
+            android:name=".AiApiTestActivity"
+            android:exported="false"
+            android:label="AI API 测试"
+            android:theme="@style/Theme.LittleBot" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

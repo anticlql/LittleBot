@@ -43,7 +43,10 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     viewModel = viewModel,
                     onRequestBlePermissions = ::requestBlePermissions,
-                    onOpenLocationSettings = ::openLocationSettings
+                    onOpenLocationSettings = ::openLocationSettings,
+                    onOpenAiApiTest = {
+                        startActivity(Intent(this, AiApiTestActivity::class.java))
+                    }
                 )
             }
         }

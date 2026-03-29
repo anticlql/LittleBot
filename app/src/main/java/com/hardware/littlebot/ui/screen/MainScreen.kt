@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -70,6 +71,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -81,6 +83,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -98,6 +101,8 @@ import com.hardware.littlebot.viewmodel.ConnectionType
 import com.hardware.littlebot.viewmodel.ESP32UiState
 import com.hardware.littlebot.viewmodel.ESP32ViewModel
 import com.hardware.littlebot.viewmodel.LogEntry
+import com.hardware.littlebot.viewmodel.DEFAULT_PITCH
+import com.hardware.littlebot.viewmodel.DEFAULT_YAW
 import com.hardware.littlebot.viewmodel.PRESET_ACTIONS
 import com.hardware.littlebot.viewmodel.PresetAction
 import kotlin.math.cos
@@ -111,7 +116,8 @@ import kotlin.math.sin
 fun MainScreen(
     viewModel: ESP32ViewModel,
     onRequestBlePermissions: () -> Unit,
-    onOpenLocationSettings: () -> Unit
+    onOpenLocationSettings: () -> Unit,
+    onOpenAiApiTest: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -132,9 +138,45 @@ fun MainScreen(
                 onOpenConnectionSheet = { viewModel.showConnectionSheet() }
             )
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "大模型 API 验证",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onOpenAiApiTest) {
+                        Text("打开测试页")
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Servo control card
+            // Quick head control – 2D touch pad
+            HeadControlCard(
+                state = state,
+                onYawChanged = { viewModel.updateServoByChannel(0, it) },
+                onPitchChanged = { viewModel.updateServoByChannel(1, it) },
+                onReset = viewModel::resetHead
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Servo control card (advanced)
             ServoControlCard(
                 state = state,
                 onAngleChanged = viewModel::updateServoAngle,
@@ -152,12 +194,14 @@ fun MainScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Motion parameters card (step delay / step size)
+            // Motion parameters card (BLE: step delay/size, WiFi: smooth alpha)
             MotionParamsCard(
                 state = state,
                 onStepDelayChanged = viewModel::updateStepDelay,
                 onStepSizeChanged = viewModel::updateStepSize,
-                onSendMotionParams = viewModel::sendMotionParams
+                onSendMotionParams = viewModel::sendMotionParams,
+                onSmoothAlphaChanged = viewModel::updateSmoothAlpha,
+                onSendSmoothAlpha = viewModel::sendSmoothAlpha
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -305,6 +349,182 @@ private fun ConnectionStatusBanner(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text("断开", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Head Control Card – Dual Sliders + Position Indicator
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun HeadControlCard(
+    state: ESP32UiState,
+    onYawChanged: (Float) -> Unit,
+    onPitchChanged: (Float) -> Unit,
+    onReset: () -> Unit
+) {
+    val yaw = state.servoStates.firstOrNull { it.channel == 0 }?.angle ?: DEFAULT_YAW.toFloat()
+    val pitch = state.servoStates.firstOrNull { it.channel == 1 }?.angle ?: DEFAULT_PITCH.toFloat()
+
+    val primary = MaterialTheme.colorScheme.primary
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val surface = MaterialTheme.colorScheme.surface
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "头部控制",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedButton(
+                    onClick = { onReset() },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    enabled = state.isConnected
+                ) {
+                    Icon(Icons.Default.RestartAlt, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("复位", fontSize = 12.sp)
+                }
+            }
+
+            Text(
+                "拖动滑条即时控制 Yaw 和 Pitch",
+                style = MaterialTheme.typography.bodySmall,
+                color = onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── Position indicator ────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2.2f)
+                    .background(surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+
+                    val gridColor = onSurfaceVariant.copy(alpha = 0.08f)
+                    for (i in 1..5) {
+                        val x = w * i / 6f
+                        drawLine(gridColor, Offset(x, 0f), Offset(x, h), 1.dp.toPx())
+                    }
+                    for (i in 1..2) {
+                        val y = h * i / 3f
+                        drawLine(gridColor, Offset(0f, y), Offset(w, y), 1.dp.toPx())
+                    }
+
+                    val defX = DEFAULT_YAW.toFloat() / 180f * w
+                    val defY = (1f - DEFAULT_PITCH.toFloat() / 180f) * h
+                    val crossColor = onSurfaceVariant.copy(alpha = 0.2f)
+                    drawLine(crossColor, Offset(defX, 0f), Offset(defX, h), 1.dp.toPx())
+                    drawLine(crossColor, Offset(0f, defY), Offset(w, defY), 1.dp.toPx())
+
+                    val cx = yaw / 180f * w
+                    val cy = (1f - pitch / 180f) * h
+                    drawLine(primary.copy(alpha = 0.25f), Offset(cx, 0f), Offset(cx, h), 1.dp.toPx())
+                    drawLine(primary.copy(alpha = 0.25f), Offset(0f, cy), Offset(w, cy), 1.dp.toPx())
+
+                    drawCircle(primary.copy(alpha = 0.15f), 20.dp.toPx(), Offset(cx, cy))
+                    drawCircle(primary, 8.dp.toPx(), Offset(cx, cy))
+                    drawCircle(surface, 3.dp.toPx(), Offset(cx, cy))
+                }
+
+                Text(
+                    "← Yaw →",
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    color = onSurfaceVariant.copy(alpha = 0.4f)
+                )
+                Text(
+                    "↑Pitch",
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    color = onSurfaceVariant.copy(alpha = 0.4f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ── Yaw Slider ────────────────────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Yaw", style = MaterialTheme.typography.labelMedium, color = onSurfaceVariant, modifier = Modifier.width(42.dp))
+                Slider(
+                    value = yaw,
+                    onValueChange = { newYaw -> onYawChanged(newYaw) },
+                    valueRange = 0f..180f,
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(
+                        thumbColor = primary,
+                        activeTrackColor = primary,
+                        inactiveTrackColor = surfaceVariant
+                    )
+                )
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Text(
+                        "${yaw.toInt()}°",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            // ── Pitch Slider ──────────────────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Pitch", style = MaterialTheme.typography.labelMedium, color = onSurfaceVariant, modifier = Modifier.width(42.dp))
+                Slider(
+                    value = pitch,
+                    onValueChange = { newPitch -> onPitchChanged(newPitch) },
+                    valueRange = 0f..180f,
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(
+                        thumbColor = primary,
+                        activeTrackColor = primary,
+                        inactiveTrackColor = surfaceVariant
+                    )
+                )
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Text(
+                        "${pitch.toInt()}°",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
                 }
             }
         }
@@ -725,14 +945,16 @@ private fun PresetActionsCard(
             }
 
             Text(
-                text = "执行完毕后自动复位到默认姿势",
+                text = "执行完毕后自动复位到默认姿势（支持 BLE / WiFi）",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            val enabled = state.isConnected && !state.isExecutingAction
+            val canExecute = state.isConnected &&
+                    (state.connectionType == ConnectionType.BLE || state.connectionType == ConnectionType.WIFI)
+            val enabled = canExecute && !state.isExecutingAction
             PRESET_ACTIONS.chunked(2).forEach { row ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -764,8 +986,12 @@ private fun MotionParamsCard(
     state: ESP32UiState,
     onStepDelayChanged: (Int) -> Unit,
     onStepSizeChanged: (Int) -> Unit,
-    onSendMotionParams: () -> Unit
+    onSendMotionParams: () -> Unit,
+    onSmoothAlphaChanged: (Float) -> Unit,
+    onSendSmoothAlpha: () -> Unit
 ) {
+    val isWifi = state.connectionType == ConnectionType.WIFI
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -777,42 +1003,73 @@ private fun MotionParamsCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
-            Text(
-                text = "控制 ESP32 的步进间隔与每步移动度数",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            if (isWifi) {
+                Text(
+                    text = "控制 ESP32 指数平滑系数（越小越顺滑）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-            SliderWithLabel(
-                label = "步进间隔",
-                value = state.stepDelayMs.toFloat(),
-                valueRange = 0f..100f,
-                valueText = "${state.stepDelayMs}ms",
-                onValueChange = { onStepDelayChanged(it.toInt()) }
-            )
+                Spacer(modifier = Modifier.height(12.dp))
 
-            Spacer(modifier = Modifier.height(8.dp))
+                SliderWithLabel(
+                    label = "平滑系数 Alpha",
+                    value = state.smoothAlpha,
+                    valueRange = 0.01f..0.30f,
+                    valueText = "${"%.2f".format(state.smoothAlpha)}",
+                    onValueChange = onSmoothAlphaChanged
+                )
 
-            SliderWithLabel(
-                label = "步进度数",
-                value = state.stepSizeDeg.toFloat(),
-                valueRange = 1f..180f,
-                valueText = "${state.stepSizeDeg}°",
-                onValueChange = { onStepSizeChanged(it.toInt()) }
-            )
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = onSendSmoothAlpha,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = state.isConnected
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("发送平滑参数")
+                }
+            } else {
+                Text(
+                    text = "控制 ESP32 的步进间隔与每步移动度数",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-            Button(
-                onClick = onSendMotionParams,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = state.isConnected
-            ) {
-                Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("发送运动参数")
+                Spacer(modifier = Modifier.height(12.dp))
+
+                SliderWithLabel(
+                    label = "步进间隔",
+                    value = state.stepDelayMs.toFloat(),
+                    valueRange = 0f..100f,
+                    valueText = "${state.stepDelayMs}ms",
+                    onValueChange = { onStepDelayChanged(it.toInt()) }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SliderWithLabel(
+                    label = "步进度数",
+                    value = state.stepSizeDeg.toFloat(),
+                    valueRange = 1f..180f,
+                    valueText = "${state.stepSizeDeg}°",
+                    onValueChange = { onStepSizeChanged(it.toInt()) }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onSendMotionParams,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = state.isConnected
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("发送运动参数")
+                }
             }
         }
     }
@@ -1227,7 +1484,10 @@ private fun WifiConnectionContent(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("已连接", fontWeight = FontWeight.SemiBold)
-                        Text("${state.wifiIp}:${state.wifiPort}", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "http://${state.wifiIp}${if (state.wifiPort != "80") ":${state.wifiPort}" else ""}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                     OutlinedButton(onClick = onDisconnect) { Text("断开") }
                 }
@@ -1236,7 +1496,7 @@ private fun WifiConnectionContent(
         }
 
         Text(
-            "输入 ESP32 的 IP 地址和端口号",
+            "输入 ESP32 的 IP 地址（通过 HTTP 控制）",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1247,7 +1507,7 @@ private fun WifiConnectionContent(
             value = state.wifiIp,
             onValueChange = onIpChanged,
             label = { Text("IP 地址") },
-            placeholder = { Text("192.168.4.1") },
+            placeholder = { Text("192.168.x.x") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             leadingIcon = { Icon(Icons.Default.Wifi, null) }
@@ -1258,8 +1518,8 @@ private fun WifiConnectionContent(
         OutlinedTextField(
             value = state.wifiPort,
             onValueChange = onPortChanged,
-            label = { Text("端口号") },
-            placeholder = { Text("8080") },
+            label = { Text("端口号（默认 80）") },
+            placeholder = { Text("80") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -1277,7 +1537,7 @@ private fun WifiConnectionContent(
         Spacer(Modifier.height(12.dp))
 
         Text(
-            "提示：ESP32 在 AP 模式下默认 IP 为 192.168.4.1。\n请确保手机已连接到 ESP32 的 WiFi 热点或同一局域网。",
+            "提示：ESP32 以 STA 模式连接路由器，IP 地址由路由器分配。\n请查看 ESP32 串口输出获取 IP，并确保手机与 ESP32 在同一局域网。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

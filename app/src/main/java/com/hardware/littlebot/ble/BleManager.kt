@@ -66,11 +66,19 @@ data class ScannedDevice(
  * ### Classic SPP mode
  * Uses RFCOMM/SPP serial – sends text commands just like a serial terminal.
  */
-class BleManager(private val context: Context) {
+class BleManager private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "BleManager"
         private const val SCAN_TIMEOUT_MS = 12_000L
+
+        @Volatile
+        private var instance: BleManager? = null
+
+        fun getInstance(context: Context): BleManager =
+            instance ?: synchronized(this) {
+                instance ?: BleManager(context.applicationContext).also { instance = it }
+            }
 
         // ── ESP32 BLE Service UUID ───────────────────────────────────────
         val ESP32_SERVICE_UUID: UUID =
